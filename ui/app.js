@@ -216,7 +216,7 @@ async function fetchData() {
 
     updateStatus(data.status);
     const visible = renderItems(data.items);
-    renderNav(data.categories, visible, data.ignoredCount);
+    renderNav(data.categories, visible, data.usefulCount || 0, data.ignoredCount);
     fetchDigest();
   } catch (err) {
     console.error("Fetch error:", err);
