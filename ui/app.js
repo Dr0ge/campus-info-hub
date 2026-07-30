@@ -281,7 +281,9 @@ function renderCard(item) {
   if (item.organizer) metaParts.push(`<span>${esc(item.organizer)}</span>`);
   metaParts.push(`<span>${esc(item.source_group)}</span>`);
 
-  const msgTime = item.created_at ? new Date(item.created_at).toLocaleString("zh-CN") : "";
+  const msgTime = item.msg_time
+    ? new Date(item.msg_time * 1000).toLocaleString("zh-CN")
+    : (item.created_at ? new Date(item.created_at).toLocaleString("zh-CN") : "");
 
   return `
     <div class="item-card ${verifiedClass}" data-id="${item.id}" data-category="${esc(item.category)}" data-talker="${esc(item.session_id || "")}" data-msgtime="${item.msg_time || (item.created_at ? Math.floor(new Date(item.created_at).getTime()/1000) : "")}">
