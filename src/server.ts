@@ -1,6 +1,6 @@
 import { serve } from "bun";
 import { config } from "./config";
-import { getItems, getCategoryCounts, getAllCategoryCount, getIgnoredCount, updateItemVerify, getAllSessions, toggleSession, getLatestDigest, getContextMessages } from "./db";
+import { getItems, getCategoryCounts, getAllCategoryCount, getIgnoredCount, updateItemVerify, getAllSessions, toggleSession, getLatestDigest, getContextMessages, getContactName } from "./db";
 
 const server = serve({
   port: config.server.port,
@@ -22,7 +22,10 @@ const server = serve({
       const now = Date.now();
       const itemsWithRelative = items.map((item) => ({
         ...item,
-        relativeTime: relativeTimeStr(new Date(item.created_at).getTime(), now),
+        relativeTime: relativeTimeStr(
+          (item.msg_time || new Date(item.created_at).getTime() / 1000) * 1000,
+          now
+        ),
       }));
 
       return Response.json({
@@ -76,10 +79,50 @@ const server = serve({
     if (path === "/api/context" && req.method === "GET") {
       const talker = url.searchParams.get("talker");
       const aroundTime = parseInt(url.searchParams.get("t") || "0");
-      if (!talker) {
-        return Response.json({ messages: [] });
+      if (!talker) return Response.json({ messages: [] });
+
+      // Try local raw_messages first
+      let msgs = getContextMessages(talker, aroundTime);
+
+      // Fallback: if local store has no data, try WeFlow API (with retry)
+      if (msgs.length === 0 && aroundTime > 0) {
+        try {
+          const dateFrom = new Date((aroundTime - 86400) * 1000).toISOString().split("T")[0];
+          const qs = `talker=${talker}&date_from=${dateFrom}&limit=30`;
+          const headers = { Authorization: `Bearer ${config.weflow.token}` };
+
+          let res = await fetch(`${config.weflow.baseUrl}/api/v1/messages?${qs}`, { headers });
+          if (!res.ok) throw new Error("WeFlow error");
+
+          let data = await res.json();
+          if (!data.messages || data.messages.length === 0) {
+            await new Promise(r => setTimeout(r, 500));
+            res = await fetch(`${config.weflow.baseUrl}/api/v1/messages?${qs}`, { headers });
+            if (res.ok) data = await res.json();
+          }
+
+          msgs = (data.messages || [])
+            .filter((m: any) => {
+              if (m.localType !== 1) return false;
+              const c = m.content || "";
+              if (!c || c === "[消息]" || c.trim().length < 2) return false;
+              if (c.includes("加入了群聊") || c.includes("退出了群聊") ||
+                  c.includes("修改群名为") || c.includes("撤回了一条消息") ||
+                  c.startsWith("<msg>") || c.startsWith("<sysmsg")) return false;
+              return true;
+            })
+            .map((m: any) => {
+              const wxid = m.senderUsername || "";
+              const name = getContactName(wxid) || wxid || "未知";
+              return {
+                content: m.content.replace(/<[^>]*>/g, "").split("\n")[0].trim(),
+                sender: name,
+                time: m.createTime,
+              };
+            });
+        } catch { /* fallback failed */ }
       }
-      const msgs = getContextMessages(talker, aroundTime);
+
       return Response.json({ messages: msgs });
     }
 

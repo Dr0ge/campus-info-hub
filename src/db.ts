@@ -76,6 +76,13 @@ function initSchema(db: Database) {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      username     TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS raw_messages (
       msg_id     TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -264,6 +271,19 @@ export function getSessionName(talker: string): string | null {
   return row?.name ?? null;
 }
 
+// ── Contacts ──
+
+export function upsertContact(username: string, displayName: string) {
+  const db = getDb();
+  db.run("INSERT OR REPLACE INTO contacts (username, display_name) VALUES (?, ?)", [username, displayName]);
+}
+
+export function getContactName(username: string): string | null {
+  const db = getDb();
+  const row = db.query("SELECT display_name FROM contacts WHERE username = ?").get(username) as { display_name: string } | undefined;
+  return row?.display_name || null;
+}
+
 // ── Raw Messages (for local context) ──
 
 export function insertRawMessage(
@@ -277,12 +297,15 @@ export function insertRawMessage(
 
 export function getContextMessages(sessionId: string, aroundTime: number): { sender: string; content: string; time: number }[] {
   const db = getDb();
-  const since = aroundTime - 3600; // 1 hour before
-  const until = aroundTime + 3600; // 1 hour after
+  const since = aroundTime - 3600;
+  const until = aroundTime + 3600;
+  // Resolve wxid → display name via contacts table
   const rows = db.query(
-    `SELECT sender_name as sender, content, timestamp as time FROM raw_messages
-     WHERE session_id = ? AND timestamp BETWEEN ? AND ?
-     ORDER BY timestamp LIMIT 30`
+    `SELECT COALESCE(c.display_name, r.sender_name) as sender, r.content, r.timestamp as time
+     FROM raw_messages r
+     LEFT JOIN contacts c ON r.sender_name = c.username
+     WHERE r.session_id = ? AND r.timestamp BETWEEN ? AND ?
+     ORDER BY r.timestamp LIMIT 30`
   ).all(sessionId, since, until) as { sender: string; content: string; time: number }[];
   return rows;
 }

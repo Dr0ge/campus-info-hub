@@ -5,6 +5,7 @@ import {
   upsertSession,
   getEnabledSessions,
   insertRawMessage,
+  upsertContact,
 } from "./db";
 import {
   normalizeRest,
@@ -78,7 +79,9 @@ export async function poll(): Promise<PollResult> {
   try {
     const contactsData = await weflowGet<{ contacts: { username: string; displayName: string }[] }>("/api/v1/contacts");
     for (const c of (contactsData.contacts || [])) {
-      contacts.set(c.username, c.displayName || c.username);
+      const name = c.displayName || c.username;
+      contacts.set(c.username, name);
+      upsertContact(c.username, name); // Persist for context queries
     }
     console.log(`[poller] Loaded ${contacts.size} contacts`);
   } catch {

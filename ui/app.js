@@ -5,6 +5,9 @@ let refreshIntervalSec = 300;
 let hiddenCategories = [];
 let disabledSessions = new Set();
 let refreshTimer = null;
+let sessionToggleBusy = false;
+let selectAllBusy = false;
+let fetchSeq = 0;
 
 // ── Elements (additional) ──
 const $digestBanner = document.getElementById("digest-banner");
@@ -49,6 +52,17 @@ function setupEvents() {
     fetchData();
   });
 
+  // "查看全部" link in filtered-empty-state
+  $content.addEventListener("click", (e) => {
+    const link = e.target.closest(".reset-filter-link");
+    if (!link) return;
+    e.preventDefault();
+    currentCategory = "全部";
+    currentVerified = "unverified";
+    updateActiveNav();
+    fetchData();
+  });
+
   $ignoredLink.addEventListener("click", (e) => {
     e.preventDefault();
     currentCategory = "全部";
@@ -66,8 +80,6 @@ function setupEvents() {
   $settingsLinkTop.addEventListener("click", openSettings);
 
   // Session toggle delegation
-  let sessionToggleBusy = false;
-
   $sessionList.addEventListener("change", async (e) => {
     const cb = e.target.closest("input[type=checkbox]");
     if (!cb || !cb.dataset.talker) return;
@@ -166,8 +178,12 @@ function setupEvents() {
 
 // ── Fetch ──
 async function fetchData() {
+  const seq = ++fetchSeq;
   $emptyState.classList.add("hidden");
   $filteredEmptyState.classList.add("hidden");
+
+  // Refresh session filter BEFORE rendering (Bug #3 fix)
+  await refreshSessionFilter();
 
   const params = new URLSearchParams();
   if (currentCategory !== "全部") params.set("category", currentCategory);
@@ -175,14 +191,14 @@ async function fetchData() {
 
   try {
     const res = await fetch(`/api/items?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (seq !== fetchSeq) return; // Discard stale response (Bug #2 fix)
 
     updateStatus(data.status);
     const visible = renderItems(data.items);
-    // API categories always has the full category list; visible provides filtered counts
     renderNav(data.categories, visible, data.ignoredCount);
     fetchDigest();
-    refreshSessionFilter();
   } catch (err) {
     console.error("Fetch error:", err);
     $statusIndicator.className = "status offline";
@@ -268,9 +284,9 @@ function renderCard(item) {
   const msgTime = item.created_at ? new Date(item.created_at).toLocaleString("zh-CN") : "";
 
   return `
-    <div class="item-card ${verifiedClass}" data-id="${item.id}" data-talker="${esc(item.session_id || "")}" data-msgtime="${item.msg_time || ""}">
+    <div class="item-card ${verifiedClass}" data-id="${item.id}" data-category="${esc(item.category)}" data-talker="${esc(item.session_id || "")}" data-msgtime="${item.msg_time || (item.created_at ? Math.floor(new Date(item.created_at).getTime()/1000) : "")}">
       <div class="card-header">
-        <span class="card-category">${esc(item.category)}</span>
+        <span class="card-category" data-cat="${esc(item.category)}">${esc(item.category)}</span>
         <span class="card-time">${esc(item.relativeTime)}</span>
       </div>
       <div class="card-title">${esc(item.title)}</div>
@@ -302,17 +318,25 @@ async function verifyItem(id, verified, cardEl) {
     });
     if (res.ok) {
       if (verified === 1) {
-        cardEl.classList.add("verified");
-        cardEl.querySelector(".btn-useful").classList.add("active");
-        cardEl.querySelector(".btn-ignore").classList.remove("active");
+        if (currentVerified === "ignored") {
+          // Card no longer matches current filter → remove
+          cardEl.style.transition = "opacity 0.3s";
+          cardEl.style.opacity = "0";
+          setTimeout(() => cardEl.remove(), 300);
+        } else {
+          cardEl.classList.add("verified");
+          cardEl.querySelector(".btn-useful").classList.add("active");
+          cardEl.querySelector(".btn-ignore").classList.remove("active");
+        }
       } else {
         if (currentVerified !== "ignored") {
           cardEl.style.transition = "opacity 0.3s";
           cardEl.style.opacity = "0";
           setTimeout(() => cardEl.remove(), 300);
+        } else {
+          cardEl.querySelector(".btn-ignore").classList.add("active");
+          cardEl.querySelector(".btn-useful").classList.remove("active");
         }
-        cardEl.querySelector(".btn-ignore").classList.add("active");
-        cardEl.querySelector(".btn-useful").classList.remove("active");
       }
     }
   } catch (err) {
@@ -429,20 +453,28 @@ function renderSessions(sessions) {
   ].join("");
   $sessionList.innerHTML = html;
 
-  // Select all handler
+  // Select all handler (Bug #1/#6 fix: re-entry guard, parallel toggles)
   document.getElementById("session-select-all").addEventListener("change", async (e) => {
-    const check = e.target.checked;
+    if (selectAllBusy) return;
+    selectAllBusy = true;
     sessionToggleBusy = true;
-    const checkboxes = $sessionList.querySelectorAll("input[data-talker]");
-    for (const cb of checkboxes) {
-      if (cb.checked !== check) {
-        cb.checked = check;
-        try {
-          await fetch(`/api/sessions/${encodeURIComponent(cb.dataset.talker)}/toggle`, { method: "POST" });
-        } catch {}
+    const check = e.target.checked;
+    try {
+      const promises = [];
+      const checkboxes = $sessionList.querySelectorAll("input[data-talker]");
+      for (const cb of checkboxes) {
+        if (cb.checked !== check) {
+          cb.checked = check;
+          promises.push(
+            fetch(`/api/sessions/${encodeURIComponent(cb.dataset.talker)}/toggle`, { method: "POST" }).catch(() => {})
+          );
+        }
       }
+      await Promise.all(promises);
+    } finally {
+      sessionToggleBusy = false;
+      selectAllBusy = false;
     }
-    sessionToggleBusy = false;
     await refreshSessionFilter();
     fetchData();
   });
@@ -452,8 +484,8 @@ function renderSessions(sessions) {
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("campus-hub-settings") || "{}");
-    refreshIntervalSec = saved.refreshInterval || 300;
-    hiddenCategories = saved.hiddenCategories || [];
+    refreshIntervalSec = Math.max(30, parseInt(saved.refreshInterval, 10) || 300);
+    hiddenCategories = Array.isArray(saved.hiddenCategories) ? saved.hiddenCategories : [];
   } catch { /* ignore */ }
   $refreshInterval.value = refreshIntervalSec;
 
