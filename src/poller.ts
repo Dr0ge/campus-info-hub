@@ -1,10 +1,9 @@
 import { config } from "./config";
 import {
-  isMessageProcessed,
   areMessagesProcessed,
   upsertSession,
   getEnabledSessions,
-  insertRawMessage,
+  insertRawMessages,
   upsertContact,
 } from "./db";
 import {
@@ -114,6 +113,7 @@ export async function poll(): Promise<PollResult> {
   let totalRaw = 0;
   let totalSkipped = 0;
   let sessionIdx = 0;
+  const rawMsgBatch: { msgId: string; sessionId: string; groupName: string; senderName: string; content: string; timestamp: number }[] = [];
 
   for (const session of enabledSessions) {
     sessionIdx++;
@@ -144,9 +144,12 @@ export async function poll(): Promise<PollResult> {
         const groupName = session.name || session.talker;
         const normalized = normalizeRest(msg, session.talker, groupName, contacts);
         result.messages.push(normalized);
-        // Store raw message for local context lookup
-        insertRawMessage(normalized.msgId, normalized.sessionId, normalized.groupName,
-          normalized.senderName, normalized.content, normalized.timestamp);
+        // Collect for batch insert
+        rawMsgBatch.push({
+          msgId: normalized.msgId, sessionId: normalized.sessionId,
+          groupName: normalized.groupName, senderName: normalized.senderName,
+          content: normalized.content, timestamp: normalized.timestamp,
+        });
         sessionNew++;
       }
 
@@ -158,6 +161,9 @@ export async function poll(): Promise<PollResult> {
       result.errors.push(`Failed: ${session.talker}: ${err}`);
     }
   }
+
+  // Batch insert all raw messages (single SQL statement, no explicit transaction needed)
+  insertRawMessages(rawMsgBatch);
 
   console.log(`[poller] 完成: ${result.messages.length} 条新消息 (原始 ${totalRaw}, 预过滤 ${totalSkipped}, 涉及 ${enabledSessions.length} 个群聊)`);
   return result;

@@ -205,9 +205,18 @@ export function areMessagesProcessed(msgIds: string[]): Set<string> {
 export function markMessageProcessed(msgId: string) {
   const db = getDb();
   db.run("INSERT OR IGNORE INTO processed_messages (msg_id, processed_at) VALUES (?, ?)", [
-    msgId,
-    new Date().toISOString(),
+    msgId, new Date().toISOString(),
   ]);
+}
+
+export function markMessagesProcessed(msgIds: string[]) {
+  if (msgIds.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const placeholders = msgIds.map(() => "(?, ?)").join(", ");
+  const params: any[] = [];
+  for (const id of msgIds) { params.push(id, now); }
+  db.run(`INSERT OR IGNORE INTO processed_messages (msg_id, processed_at) VALUES ${placeholders}`, params);
 }
 
 // ── Poll State ──
@@ -278,6 +287,9 @@ export function upsertContact(username: string, displayName: string) {
   db.run("INSERT OR REPLACE INTO contacts (username, display_name) VALUES (?, ?)", [username, displayName]);
 }
 
+export function beginTransaction() { getDb().run("BEGIN"); }
+export function commitTransaction() { getDb().run("COMMIT"); }
+
 export function getContactName(username: string): string | null {
   const db = getDb();
   const row = db.query("SELECT display_name FROM contacts WHERE username = ?").get(username) as { display_name: string } | undefined;
@@ -293,6 +305,17 @@ export function insertRawMessage(
   const db = getDb();
   db.run("INSERT OR IGNORE INTO raw_messages (msg_id, session_id, group_name, sender_name, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
     [msgId, sessionId, groupName, senderName, content, timestamp]);
+}
+
+export function insertRawMessages(msgs: { msgId: string; sessionId: string; groupName: string; senderName: string; content: string; timestamp: number }[]) {
+  if (msgs.length === 0) return;
+  const db = getDb();
+  const placeholders = msgs.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+  const params: any[] = [];
+  for (const m of msgs) {
+    params.push(m.msgId, m.sessionId, m.groupName, m.senderName, m.content, m.timestamp);
+  }
+  db.run(`INSERT OR IGNORE INTO raw_messages (msg_id, session_id, group_name, sender_name, content, timestamp) VALUES ${placeholders}`, params);
 }
 
 export function getContextMessages(sessionId: string, aroundTime: number): { sender: string; content: string; time: number }[] {

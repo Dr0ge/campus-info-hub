@@ -1,4 +1,4 @@
-import { getDb, insertItem, getRecentItems, saveDigest, markMessageProcessed, updateLastPollTime } from "./src/db";
+import { getDb, insertItem, getRecentItems, saveDigest, markMessagesProcessed, updateLastPollTime, beginTransaction, commitTransaction } from "./src/db";
 import { poll } from "./src/poller";
 import { classifyBatch } from "./src/classify";
 import { checkDedup, addToCache } from "./src/dedup";
@@ -44,13 +44,16 @@ async function processAllBatches(messages: InternalMessage[]) {
 
   try {
     let totalInserted = 0, totalDupes = 0, totalSkipped = 0;
+    const processedIds: string[] = [];
+
+    beginTransaction();
 
     for (let bi = 0; bi < batches.length; bi++) {
       const batch = batches[bi];
       const results = allResults[bi];
 
       if (results.length === 0) {
-        for (const msg of batch) markMessageProcessed(msg.msgId);
+        for (const msg of batch) processedIds.push(msg.msgId);
         continue;
       }
 
@@ -65,7 +68,7 @@ async function processAllBatches(messages: InternalMessage[]) {
 
         if (!result.relevant) {
           totalSkipped++;
-          markMessageProcessed(msg.msgId);
+          processedIds.push(msg.msgId);
           continue;
         }
 
@@ -78,7 +81,7 @@ async function processAllBatches(messages: InternalMessage[]) {
         const dedupResult = await checkDedup(title, description, sourceGroup);
         if (dedupResult.isDuplicate) {
           totalDupes++;
-          markMessageProcessed(msg.msgId);
+          processedIds.push(msg.msgId);
           continue;
         }
 
@@ -98,11 +101,15 @@ async function processAllBatches(messages: InternalMessage[]) {
           is_verified: 0,
           content_hash: "",
         });
-        markMessageProcessed(msg.msgId);
+        processedIds.push(msg.msgId);
         addToCache(id, title, description);
         totalInserted++;
       }
     }
+
+    // Batch mark all messages processed in one INSERT
+    markMessagesProcessed(processedIds);
+    commitTransaction();
 
     console.log(`[pipeline] 总计: ${totalInserted} 入库, ${totalDupes} 重复, ${totalSkipped} 闲聊`);
   } finally {
