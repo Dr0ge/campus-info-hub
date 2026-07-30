@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>校园信息聚合</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="top-bar">
+      <h1>校园信息聚合</h1>
+      <div class="top-bar-right">
+        <button id="sync-btn" class="sync-btn">立即同步</button>
+        <a href="#" id="settings-link-top" class="top-settings-link">设置</a>
+        <div id="status-indicator" class="status offline">
+          <span id="status-text">等待首次同步...</span>
+        </div>
+      </div>
+    </header>
+    <div class="main-layout">
+      <aside class="sidebar">
+        <nav id="category-nav"></nav>
+        <div class="sidebar-footer">
+          <a href="#" id="ignored-link">已忽略</a>
+          <a href="#" id="settings-link">设置</a>
+        </div>
+      </aside>
+      <main id="content">
+        <div id="loading-state" class="skeleton-container">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+        <div id="empty-state" class="empty-state hidden">
+          <p>暂无信息，等待新消息中...</p>
+        </div>
+        <div id="filtered-empty-state" class="empty-state hidden">
+          <p>该分类下暂无信息</p>
+          <a href="#" data-category="全部">查看全部</a>
+        </div>
+        <div id="digest-banner" class="digest-banner hidden">
+          <div class="digest-content" id="digest-content"></div>
+        </div>
+        <div id="items-container"></div>
+      </main>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>设置</h2>
+      <label>前端刷新间隔（秒）</label>
+      <input type="number" id="refresh-interval" min="30" value="300">
+      <label>显示的信息类型</label>
+      <div id="category-toggles">
+        <label><input type="checkbox" data-cat="活动通知" checked> 活动通知</label>
+        <label><input type="checkbox" data-cat="社团招新" checked> 社团招新</label>
+        <label><input type="checkbox" data-cat="学术" checked> 学术</label>
+        <label><input type="checkbox" data-cat="二手" checked> 二手</label>
+        <label><input type="checkbox" data-cat="实习" checked> 实习</label>
+      </div>
+      <label>群聊筛选（仅拉取已启用的群聊）</label>
+      <div id="session-list" class="session-list">
+        <p class="text-muted">加载中...</p>
+      </div>
+
+      <div class="modal-actions">
+        <button id="settings-save">保存</button>
+        <button id="settings-close">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
