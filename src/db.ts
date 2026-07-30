@@ -181,6 +181,12 @@ export function getIgnoredCount(): number {
   return row.count;
 }
 
+export function getUsefulCount(): number {
+  const db = getDb();
+  const row = db.query("SELECT COUNT(*) as count FROM items WHERE is_verified = 1").get() as { count: number };
+  return row.count;
+}
+
 export function updateItemVerify(id: string, verified: number) {
   const db = getDb();
   db.run("UPDATE items SET is_verified = ? WHERE id = ?", [verified, id]);

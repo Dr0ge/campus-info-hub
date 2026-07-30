@@ -1,6 +1,6 @@
 import { serve } from "bun";
 import { config } from "./config";
-import { getItems, getCategoryCounts, getAllCategoryCount, getIgnoredCount, updateItemVerify, getAllSessions, toggleSession, getLatestDigest, getContextMessages, getContactName } from "./db";
+import { getItems, getCategoryCounts, getAllCategoryCount, getIgnoredCount, getUsefulCount, updateItemVerify, getAllSessions, toggleSession, getLatestDigest, getContextMessages, getContactName } from "./db";
 
 const server = serve({
   port: config.server.port,
@@ -34,6 +34,7 @@ const server = serve({
           { key: "全部", count: allCount },
           ...categories,
         ],
+        usefulCount: getUsefulCount(),
         ignoredCount,
         status: getStatus(),
       });

@@ -24,6 +24,7 @@ const $statusText = document.getElementById("status-text");
 const $statusIndicator = document.getElementById("status-indicator");
 const $settingsModal = document.getElementById("settings-modal");
 const $refreshInterval = document.getElementById("refresh-interval");
+const $memoLink = document.getElementById("memo-link");
 const $ignoredLink = document.getElementById("ignored-link");
 const $settingsLink = document.getElementById("settings-link");
 const $settingsSave = document.getElementById("settings-save");
@@ -59,6 +60,14 @@ function setupEvents() {
     e.preventDefault();
     currentCategory = "全部";
     currentVerified = "unverified";
+    updateActiveNav();
+    fetchData();
+  });
+
+  $memoLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    currentCategory = "全部";
+    currentVerified = "useful";
     updateActiveNav();
     fetchData();
   });
@@ -169,9 +178,11 @@ function setupEvents() {
     const id = card.dataset.id;
 
     if (btn.classList.contains("btn-useful")) {
-      verifyItem(id, 1, card);
+      const cur = parseInt(card.dataset.verified || "0");
+      verifyItem(id, cur === 1 ? 0 : 1, card);
     } else if (btn.classList.contains("btn-ignore")) {
-      verifyItem(id, -1, card);
+      const cur = parseInt(card.dataset.verified || "0");
+      verifyItem(id, cur === -1 ? 0 : -1, card);
     }
   });
 }
@@ -197,7 +208,7 @@ async function fetchData() {
 
     updateStatus(data.status);
     const visible = renderItems(data.items);
-    renderNav(data.categories, visible, data.ignoredCount);
+    renderNav(data.categories, visible, data.usefulCount || 0, data.ignoredCount);
     fetchDigest();
   } catch (err) {
     console.error("Fetch error:", err);
@@ -207,7 +218,7 @@ async function fetchData() {
 }
 
 // ── Render Nav ──
-function renderNav(categories, visibleItems, ignoredCount) {
+function renderNav(categories, visibleItems, usefulCount, ignoredCount) {
   // Compute filtered counts from visible items
   const visCounts = { "全部": visibleItems.length };
   for (const item of visibleItems) {
@@ -219,7 +230,7 @@ function renderNav(categories, visibleItems, ignoredCount) {
     const total = cat.count;
     const filtered = visCounts[cat.key] || 0;
     const countStr = filtered < total ? `${filtered}/${total}` : `${total}`;
-    const isActive = cat.key === currentCategory && currentVerified !== "ignored";
+    const isActive = cat.key === currentCategory && currentVerified !== "ignored" && currentVerified !== "useful";
     html += `
       <a href="#" class="cat-link${isActive ? " active" : ""}" data-category="${cat.key}" data-verified="unverified">
         ${esc(cat.key)}
@@ -228,6 +239,9 @@ function renderNav(categories, visibleItems, ignoredCount) {
   }
   $nav.innerHTML = html;
 
+  if (usefulCount !== undefined) {
+    $memoLink.textContent = `备忘录 (${usefulCount})`;
+  }
   if (ignoredCount !== undefined) {
     $ignoredLink.textContent = `已忽略 (${ignoredCount})`;
   }
@@ -238,6 +252,10 @@ function updateActiveNav() {
     const match = el.dataset.category === currentCategory && el.dataset.verified === currentVerified;
     el.classList.toggle("active", match);
   });
+  const memoActive = currentVerified === "useful";
+  $memoLink.style.fontWeight = memoActive ? "600" : "";
+  $memoLink.style.color = memoActive ? "var(--accent)" : "";
+
   const ignoredActive = currentVerified === "ignored";
   $ignoredLink.style.fontWeight = ignoredActive ? "600" : "";
   $ignoredLink.style.color = ignoredActive ? "var(--accent)" : "";
@@ -286,7 +304,7 @@ function renderCard(item) {
     : (item.created_at ? new Date(item.created_at).toLocaleString("zh-CN") : "");
 
   return `
-    <div class="item-card ${verifiedClass}" data-id="${item.id}" data-category="${esc(item.category)}" data-talker="${esc(item.session_id || "")}" data-msgtime="${item.msg_time || (item.created_at ? Math.floor(new Date(item.created_at).getTime()/1000) : "")}">
+    <div class="item-card ${verifiedClass}" data-id="${item.id}" data-verified="${item.is_verified}" data-category="${esc(item.category)}" data-talker="${esc(item.session_id || "")}" data-msgtime="${item.msg_time || (item.created_at ? Math.floor(new Date(item.created_at).getTime()/1000) : "")}">
       <div class="card-header">
         <span class="card-category" data-cat="${esc(item.category)}">${esc(item.category)}</span>
         <span class="card-time">${esc(item.relativeTime)}</span>
@@ -304,8 +322,8 @@ function renderCard(item) {
         </div>
       </div>
       <div class="card-actions">
-        <button class="btn-useful${item.is_verified === 1 ? " active" : ""}">有用</button>
-        <button class="btn-ignore${item.is_verified === -1 ? " active" : ""}">忽略</button>
+        <button class="btn-useful${item.is_verified === 1 ? " active" : ""}">${item.is_verified === 1 ? "已加入" : "加入备忘录"}</button>
+        <button class="btn-ignore${item.is_verified === -1 ? " active" : ""}">${item.is_verified === -1 ? "已忽略" : "忽略"}</button>
       </div>
     </div>`;
 }
@@ -319,26 +337,37 @@ async function verifyItem(id, verified, cardEl) {
       body: JSON.stringify({ verified }),
     });
     if (res.ok) {
+      cardEl.dataset.verified = String(verified);
+      const usefulBtn = cardEl.querySelector(".btn-useful");
+      const ignoreBtn = cardEl.querySelector(".btn-ignore");
+
       if (verified === 1) {
-        if (currentVerified === "ignored") {
-          // Card no longer matches current filter → remove
-          cardEl.style.transition = "opacity 0.3s";
-          cardEl.style.opacity = "0";
-          setTimeout(() => cardEl.remove(), 300);
-        } else {
-          cardEl.classList.add("verified");
-          cardEl.querySelector(".btn-useful").classList.add("active");
-          cardEl.querySelector(".btn-ignore").classList.remove("active");
-        }
+        cardEl.classList.add("verified");
+        usefulBtn.classList.add("active");
+        usefulBtn.textContent = "已加入";
+        ignoreBtn.classList.remove("active");
+        ignoreBtn.textContent = "忽略";
+      } else if (verified === -1) {
+        cardEl.classList.add("ignored");
+        ignoreBtn.classList.add("active");
+        ignoreBtn.textContent = "已忽略";
+        usefulBtn.classList.remove("active");
+        usefulBtn.textContent = "加入备忘录";
       } else {
-        if (currentVerified !== "ignored") {
-          cardEl.style.transition = "opacity 0.3s";
-          cardEl.style.opacity = "0";
-          setTimeout(() => cardEl.remove(), 300);
-        } else {
-          cardEl.querySelector(".btn-ignore").classList.add("active");
-          cardEl.querySelector(".btn-useful").classList.remove("active");
-        }
+        cardEl.classList.remove("verified", "ignored");
+        usefulBtn.classList.remove("active");
+        usefulBtn.textContent = "加入备忘录";
+        ignoreBtn.classList.remove("active");
+        ignoreBtn.textContent = "忽略";
+      }
+
+      // Remove card if it no longer matches current filter
+      if ((currentVerified === "useful" && verified !== 1) ||
+          (currentVerified === "ignored" && verified !== -1) ||
+          (currentVerified === "unverified" && verified !== 0)) {
+        cardEl.style.transition = "opacity 0.3s";
+        cardEl.style.opacity = "0";
+        setTimeout(() => cardEl.remove(), 300);
       }
     }
   } catch (err) {
