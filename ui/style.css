@@ -127,13 +127,58 @@ body {
 /* ── Main ── */
 #content { flex: 1; padding: 24px 28px; overflow-y: auto; }
 
-/* ── Digest Banner ── */
-.digest-banner {
+/* ── Bulletin Board ── */
+.bulletin-board {
   background: linear-gradient(135deg, #F0FDF6, #ECFEFF);
   border: 1px solid #A7F3D0; border-radius: var(--radius);
-  padding: 14px 18px; margin-bottom: 20px;
+  padding: 12px 18px 14px; margin-bottom: 20px;
+  user-select: none;
 }
-.digest-content { font-size: 14px; line-height: 1.7; color: var(--text); }
+.bulletin-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px;
+}
+.bulletin-label { font-size: 13px; font-weight: 600; color: #065F46; }
+.bulletin-page { font-size: 11px; color: #6B7280; font-variant-numeric: tabular-nums; }
+.bulletin-stage {
+  overflow: hidden; position: relative; min-height: 38px;
+  display: flex; align-items: center;
+}
+.bulletin-entry {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-decoration: none;
+  animation: bulletinFadeIn 0.35s ease;
+  cursor: pointer;
+}
+@keyframes bulletinFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.bulletin-cat {
+  flex-shrink: 0; font-size: 11px;
+  padding: 2px 8px; border-radius: 10px;
+  color: #fff; white-space: nowrap;
+}
+.bulletin-cat[data-cat="活动通知"] { background: #2563EB; }
+.bulletin-cat[data-cat="社团招新"] { background: #7C3AED; }
+.bulletin-cat[data-cat="学术"]     { background: #059669; }
+.bulletin-cat[data-cat="二手"]     { background: #D97706; }
+.bulletin-cat[data-cat="实习"]     { background: #DC2626; }
+.bulletin-text {
+  font-size: 14px; color: var(--text); line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bulletin-entry:hover .bulletin-text { color: var(--accent); text-decoration: underline; }
+.bulletin-dots {
+  display: flex; justify-content: center; gap: 6px; margin-top: 8px;
+}
+.bulletin-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #C7D2FE; transition: all 0.3s;
+}
+.bulletin-dot.active { background: var(--accent); width: 18px; border-radius: 3px; }
+.bulletin-dots.hidden { display: none; }
+.bulletin-board.paused .bulletin-stage { opacity: .7; }
 
 /* ── Item Card ── */
 .item-card {

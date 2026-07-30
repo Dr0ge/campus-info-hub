@@ -8,10 +8,18 @@ let refreshTimer = null;
 let sessionToggleBusy = false;
 let selectAllBusy = false;
 let fetchSeq = 0;
+let bulletinItems = [];
+let bulletinIndex = 0;
+let bulletinTimer = null;
+let bulletinPaused = false;
 
 // ── Elements (additional) ──
-const $digestBanner = document.getElementById("digest-banner");
-const $digestContent = document.getElementById("digest-content");
+const $bulletinBoard = document.getElementById("bulletin-board");
+const $bulletinEntry = document.getElementById("bulletin-entry");
+const $bulletinText = document.getElementById("bulletin-text");
+const $bulletinCat = document.getElementById("bulletin-cat");
+const $bulletinPage = document.getElementById("bulletin-page");
+const $bulletinDots = document.getElementById("bulletin-dots");
 
 // ── Elements ──
 const $nav = document.getElementById("category-nav");
@@ -208,7 +216,7 @@ async function fetchData() {
 
     updateStatus(data.status);
     const visible = renderItems(data.items);
-    renderNav(data.categories, visible, data.usefulCount || 0, data.ignoredCount);
+    renderNav(data.categories, visible, data.ignoredCount);
     fetchDigest();
   } catch (err) {
     console.error("Fetch error:", err);
@@ -419,48 +427,137 @@ async function fetchContext(ctxDiv, talker, aroundTime) {
   }
 }
 
-// ── Digest ──
+// ── Bulletin Board ──
 
-async function fetchDigest() {
-  try {
-    const res = await fetch("/api/summary");
-    const digest = await res.json();
-    if (digest && digest.content) {
-      $digestContent.textContent = digest.content;
-      $digestBanner.classList.remove("hidden");
-    } else {
-      $digestBanner.classList.add("hidden");
+function renderBulletin(items) {
+  // Take top 8 items for the bulletin
+  bulletinItems = items.slice(0, 8);
+  if (bulletinItems.length === 0) {
+    $bulletinBoard.classList.add("hidden");
+    stopBulletinRotation();
+    return;
+  }
+  $bulletinBoard.classList.remove("hidden");
+  bulletinIndex = 0;
+
+  // Render dots
+  if (bulletinItems.length > 1) {
+    $bulletinDots.classList.remove("hidden");
+    $bulletinDots.innerHTML = bulletinItems.map((_, i) =>
+      `<span class="bulletin-dot${i === 0 ? " active" : ""}" data-i="${i}"></span>`
+    ).join("");
+  } else {
+    $bulletinDots.classList.add("hidden");
+  }
+
+  showBulletinItem(0);
+  startBulletinRotation();
+}
+
+function showBulletinItem(i) {
+  bulletinIndex = i;
+  const item = bulletinItems[i];
+  if (!item) return;
+
+  $bulletinEntry.href = `#item-${item.id}`;
+  $bulletinEntry.dataset.id = item.id;
+  $bulletinCat.textContent = item.category;
+  $bulletinCat.dataset.cat = item.category;
+  $bulletinText.textContent = item.title;
+  $bulletinPage.textContent = `${i + 1}/${bulletinItems.length}`;
+
+  // Update dots
+  const dots = $bulletinDots.querySelectorAll(".bulletin-dot");
+  dots.forEach((d, j) => d.classList.toggle("active", j === i));
+}
+
+function startBulletinRotation() {
+  stopBulletinRotation();
+  if (bulletinItems.length <= 1) return;
+  bulletinTimer = setInterval(() => {
+    if (bulletinPaused) return;
+    const next = (bulletinIndex + 1) % bulletinItems.length;
+    showBulletinItem(next);
+  }, 4000);
+}
+
+function stopBulletinRotation() {
+  if (bulletinTimer) { clearInterval(bulletinTimer); bulletinTimer = null; }
+}
+
+// Click → scroll to card
+$bulletinEntry.addEventListener("click", (e) => {
+  e.preventDefault();
+  const id = $bulletinEntry.dataset.id;
+  const card = document.querySelector(`.item-card[data-id="${id}"]`);
+  if (card) {
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.style.transition = "box-shadow 0.35s";
+    card.style.boxShadow = "0 0 0 3px var(--accent)";
+    setTimeout(() => { card.style.boxShadow = ""; }, 2000);
+    // Also expand the quote if collapsed
+    const quote = card.querySelector(".card-quote");
+    const toggle = card.querySelector(".card-quote-toggle");
+    if (quote && !quote.classList.contains("open")) {
+      quote.classList.add("open");
+      toggle.textContent = "▲ 原文引用";
+      const ctxDiv = card.querySelector(".card-quote-context");
+      if (ctxDiv && ctxDiv.classList.contains("hidden")) {
+        ctxDiv.classList.remove("hidden");
+        const talker = card.dataset.talker;
+        const msgTime = card.dataset.msgtime;
+        if (talker) fetchContext(ctxDiv, talker, parseInt(msgTime) || 0);
+      }
     }
-  } catch {
-    $digestBanner.classList.add("hidden");
+  }
+});
+
+// Pause rotation on hover
+$bulletinBoard.addEventListener("mouseenter", () => { bulletinPaused = true; });
+$bulletinBoard.addEventListener("mouseleave", () => { bulletinPaused = false; });
+
+// Click dot to jump
+$bulletinDots.addEventListener("click", (e) => {
+  const dot = e.target.closest(".bulletin-dot");
+  if (!dot) return;
+  const i = parseInt(dot.dataset.i);
+  if (!isNaN(i)) showBulletinItem(i);
+});
+
+async function fetchSessions() {
+  try {
+    const res = await fetch("/api/sessions");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.sessions || [];
+  } catch (err) {
+    console.error("Sessions fetch error:", err);
+    return null;
   }
 }
 
 async function refreshSessionFilter() {
-  try {
-    const res = await fetch("/api/sessions");
-    const data = await res.json();
-    const next = new Set();
-    for (const s of (data.sessions || [])) {
-      if (!s.enabled) {
-        next.add(s.name);
-        next.add(s.talker); // Also block by talker (SSE items may use talker as source_group)
-      }
+  const sessions = await fetchSessions();
+  if (!sessions) return;
+  const next = new Set();
+  for (const s of sessions) {
+    if (!s.enabled) {
+      next.add(s.name);
+      next.add(s.talker); // Also block by talker (SSE items may use talker as source_group)
     }
-    disabledSessions = next; // Only update on success
-  } catch { /* keep existing filter on failure */ }
+  }
+  disabledSessions = next; // Only update on success
 }
 
 // ── Sessions ──
 
 async function loadSessions() {
-  try {
-    const res = await fetch("/api/sessions");
-    const data = await res.json();
-    renderSessions(data.sessions || []);
-  } catch (err) {
+  const sessions = await fetchSessions();
+  if (!sessions) {
     $sessionList.innerHTML = '<p class="text-muted">加载失败</p>';
+    return;
   }
+  renderSessions(sessions);
 }
 
 function renderSessions(sessions) {
